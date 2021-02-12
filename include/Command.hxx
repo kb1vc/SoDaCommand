@@ -1,4 +1,38 @@
 #pragma once
+/*
+BSD 2-Clause License
+
+Copyright (c) 2021, Matt Reilly - kb1vc
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+/**
+ * @file Command.hxx
+ * @author Matt Reilly (kb1vc)
+ * @date Feb 10, 2021
+ */
+
 #include <map>
 #include <string>
 #include <iostream>
@@ -10,48 +44,219 @@
 
 namespace SoDa {
 
-  class BadArgException : public std::runtime_error {
+/**
+ * @mainpage Command: parse command line options and arguments
+ * 
+ * Command is a class that allows the programmer to specify
+ * command line options (like --help, --out, --enable-deep-fry --set-sauce=Mephis)
+ * and parse the (argc, argv) input line.  There are other ways to do
+ * this.  BOOST::program_options is great. The posix getopt is not.
+ * 
+ * What really motivated me to write Command was a desire to
+ * eliminate boost dependencies from software that I've been developing.
+ * One could use the BOOST program_options facility. It is very flexible,
+ * a model of spectacular use of templates.  I am humbled everytime I
+ * look at it.   But carrying boost around is like bringing a piano on
+ * a picnic -- for some things it is the only tool to use, but for
+ * the most part it gets pretty heavy when you have to haul it home
+ * after all that fried chicken, potato salad, and lemonade. 
+ *
+ * If this looks a lot like boost::program_options, then that is no
+ * accident.  But I just need to get rid of this piano.
+ * 
+ * ## Enough of the witty and entertaining chit-chat. Let's look at an example.
+ *
+ * The snippets below are from the CommandExample.cxx program in the example directory. 
+ * 
+ * The Command object is a command line parser that scans an argc/argv list
+ * for options (thingies that start with -- or -), their values, and positional
+ * arguments. The application programmer specifies the legal option names, 
+ * their argument types, and a location for the scanned value -- if found. 
+ * 
+ * The parser is primitive -- don't expect the spectacular and sophisticated 
+ * grammar of getopt or boost::program_options.  The intent here is bare-bones, 
+ * just enough to satisfy the simplest needs.  If your needs are beyond that, 
+ * then get the trailer ready to drag that piano to the picnic. 
+ * 
+ * So, let's assume we want to parse a command line that looks something like
+ * this: 
+ * \verbatim
+$ ./CommandExample -i 3 --presarg  --boolarg 1 fred --strvecarg one --strvecarg "two two" --strvecarg 3  john paul george ringo
+\endverbatim
+ *
+ * This is how we might build that: 
+ * \snippet CommandExample.cxx describe the command line
+ * 
+ * The example creates a Command object, and then decorates it with options. 
+ * There are three kinds of options:
+ * 
+ * * Presence options, added with Command::addP.  A presence option
+ * sets a selected bool value if it appears on the command line. It takes no
+ * value on the command line.
+
+ * * Scalar options, added with Command::add<T>. Scalar options take one argument on
+ * the command line. A scalar option can be of any type that is capable of
+ * being read by an input stream. Typically, these are int, float, 
+ * double, unsigned int, long, unsigned long, or string. If a value is 
+ * not supplied, the default value is "filled in" to the target value. 
+ * 
+ * * Vector options, added with Command::addV<T>. These are identical to scalar 
+ * options, with the exception that a vector option may be specified multiple
+ * times.  The values taken from the command stream are appended to the
+ * supplied vector. 
+ * 
+ * Help and other command information can be added with the Command::addInfo method. 
+ * 
+ * Once the options have been added, and any info supplied, the application
+ * can parse the command line by calling Command::parse. Like this
+ * 
+ * \snippet CommandExample.cxx parse it
+ * 
+ * Can't get much simpler than that.  
+ *
+ * Each of the supplied values will be filled in.  The addP target will be
+ * set to "true" if the option appeared on the command line. The app
+ * can determine if a particular option appeared at all by calling 
+ * Command.isPresent with the long name of the option. 
+ */
+
+  /**
+   * @brief Exception complains about an option that isn't recognized. 
+   * 
+   * @param tkn the option string (long or abbreviated) that was not found. 
+   */
+  class BadOptionNameException : public std::runtime_error {
   public:
-    BadArgException(const std::string & tkn) : std::runtime_error("Bad argument specifier: " + tkn) {
+    BadOptionNameException(const std::string & tkn) : std::runtime_error("Command option \"" + tkn + "\" is unknown.") {
     }
   }; 
-  
+
+  class BadOptValueException : public std::runtime_error {
+  public:
+    BadOptValueException(const std::string & long_name,
+		const std::string & badstr, 
+		const std::string & err_msg) : 
+      runtime_error(long_name + " unacceptable value \"" + 
+		    badstr + "\" " + err_msg) {
+    }
+  }; 
+
+  /**
+   * @brief Command line parser class. 
+   * 
+   */
   class Command {
   public:
+    /**
+     * @brief constructor.  
+     * 
+     * No argument here -- this is pretty simple. 
+     */
     Command();
 
+    /**
+     * @brief add informative information to the printHelp message. 
+     * Multiple calls will append each string to the end of the information
+     * list. 
+     * 
+     * @param info explanation
+     */
     Command & addInfo(const std::string & info);
 
+    /**
+     * @brief default argument checker.  Returns true regardless of 
+     * the value of its parameter. 
+     *
+     * @param v to be ignored. 
+     * @return true
+     */
     template <typename T>
     static bool allGood(T v) { return true; }
     
+    /**
+     * @brief Add an option specifier to the command line that sets
+     * a target variable to the argument for the option. 
+     * 
+     * Each option is specified by a long name (e.g. "--set")
+     * and a short name (e.g. "-s").  Each option will set a 
+     * variable specified by the caller.  An argument may be
+     * a std::string, or any type that can be read from a stream.
+     * 
+     * @param val pointer to variable that will be set if/when 
+     * this option is found on a command line. 
+     * @param long_name the long version of the option name 
+     * @param ab_name the short (one character) version of the option name
+     * @param def_val the default value for *val
+     * @param doc_str describes the meaning of the option
+     * @param test_func returns true if the value supplied on the command 
+     * line is acceptable. 
+     * @param err_msg message to be printed if the argument value is unacceptable
+     * 
+     * @return Command object
+     */
     template <typename T>
-    Command & add(T * val, 
-		  const std::string & long_name, 
+    Command & add(T * val,
+		  const std::string & long_name,
 		  char ab_name, 
-		  T def_val,
+		  T def_val = T(),
 		  const std::string & doc_str = std::string(""),
 		  const std::function<bool(T)> & test_func = [](T v){ return true; },
 		  const std::string & err_msg = std::string("")) {
 
       // create an arg object and push it. 
-      auto arg_p = new Arg<T>(val, def_val,
+      auto arg_p = new Opt<T>(val, 
+			      def_val,			      
 			      doc_str, test_func, err_msg);
 
-      registerArg(arg_p, long_name, ab_name);
+      registerOpt(arg_p, long_name, ab_name);
       return *this;      
     }
 
 		  
+    /**
+     * @brief Add an option specifier to the command line that takes no
+     * argument, but may be tested for its "presence" on the command line. 
+     * 
+     * 
+     * @param val pointer to variable that will be set if/when 
+     * this option is found on a command line. 
+     * @param long_name the long version of the option name 
+     * @param ab_name the short (one character) version of the option name
+     * @param doc_str describes the meaning of the option
+     * 
+     * @return Command object
+     */
     Command & addP(bool * val,
 		   const std::string & long_name, 
 		   char ab_name, 
 		   const std::string & doc_str = std::string("")) {
-      auto arg_p = new ArgPresent(val, doc_str);
-      registerArg(arg_p, long_name, ab_name);
+      auto arg_p = new OptPresent(val, doc_str);
+      registerOpt(arg_p, long_name, ab_name);
       return *this;      
     }
 		   
+    /**
+     * @brief Add an option specifier to the command line that sets
+     * a target variable to the argument for the option. Multiple 
+     * instances of the option may be specified. The supplied value
+     * is pushed to the end of the target variable. 
+     * 
+     * Each option is specified by a long name (e.g. "--set")
+     * and a short name (e.g. "-s").  Each option will set a 
+     * variable specified by the caller.  An argument may be
+     * a std::string, or any type that can be read from a stream.
+     * 
+     * @param val pointer to variable that will be set if/when 
+     * this option is found on a command line. 
+     * @param long_name the long version of the option name 
+     * @param ab_name the short (one character) version of the option name
+     * @param doc_str describes the meaning of the option
+     * @param test_func returns true if the value supplied on the command 
+     * line is acceptable. 
+     * @param err_msg message to be printed if the argument value is unacceptable
+     * 
+     * @return Command object
+     */
     template <typename T>
     Command & addV(std::vector<T> * val,
 		   const std::string & long_name, 
@@ -60,32 +265,88 @@ namespace SoDa {
 		   const std::function<bool(T)> & test_func = [](T val){ return true; },
 		   const std::string & err_msg = std::string("")) {
 
-      auto arg_p = new ArgVec<T>(val, doc_str, test_func, err_msg);
-      registerArg(arg_p, long_name, ab_name);
+      auto arg_p = new OptVec<T>(val, doc_str, test_func, err_msg);
+      registerOpt(arg_p, long_name, ab_name);
       
       return *this;
     }
 		   
 		   
-    Command & parse(int argc, char * argv[]);
+    /**
+     * @brief Parse the command line. 
+     * 
+     * Scan the argv and set any target variables
+     * 
+     * @param argc count of token on the line (including the program name)
+     * @param argv pointers to each token
+     * 
+     * @return true if there was no problem interpreting the command line. 
+     * false on error. 
+     *
+     */
+    bool parse(int argc, char * argv[]);
+
+    /**
+     * @brief Parse a list of tokens.
+     * 
+     * @param arglist list of tokens to be parsed. 
+     * 
+     * @return true if there was no problem interpreting the list.
+     * false on error. 
+     *
+     */
+    bool parse(std::list<std::string> arglist);
     
+    /**
+     * @brief print the help and info strings. 
+     * 
+     * @param ostr output stream
+     * @return reference to the output stream. 
+     *
+     */
     std::ostream & printHelp(std::ostream & ostr); 
 
+    /**
+     * @brief test for appearance of an option. 
+     * 
+     * @param long_name long name of the option
+     * @return true if the option appeared on the command line as either long_name or ab_name.
+     */
     bool isPresent(const std::string & long_name);
 
+    /**
+     * @brief test for appearance of an option. 
+     * 
+     * @param ab_name short (abbreviated, one character) name of the option
+     * @return true if the option appeared on the command line as either long_name or ab_name.
+     */
     bool isPresent(char ab_name);
 
+    /**
+     * @brief return nth positional argument
+     *
+     * Tokens on the command line that are not apparently values to be 
+     * supplied to an option are appended to a vector of positional arguments.
+     * 
+     * @param idx The position of the positional argument in the command line. 
+     * @return the idx'th token in the positional list
+     */
     std::string getPosArg(int idx);
 
+    /**
+     * @brief return the number of positional arguments
+     * 
+     * @return the number of positional arguments. 
+     */
     int numPosArgs() { return pos_arg_vec.size(); }
 
   private:
 
     int isSwitch(const std::string & tkn);
     
-    class ArgBase {
+    class OptBase {
     public:
-      ArgBase(const std::string & doc_str, 
+      OptBase(const std::string & doc_str, 
 	      const std::string & err_msg) : 
 	doc_str(doc_str), err_msg(err_msg) {
 	present = false; 
@@ -97,7 +358,7 @@ namespace SoDa {
 	return present; 
       }
 
-      virtual bool isPresentArg() { 
+      virtual bool isPresentOpt() { 
 	return false; }
 
       virtual bool setVal(const std::string & vstr) = 0;
@@ -113,12 +374,20 @@ namespace SoDa {
 	ab_name =abn; 
       }
       
+
+      
+      std::string long_name;
+      char ab_name; 
+      
     protected:
       
       template<typename T> 
       void setValBase(T * v, const std::string & vstr) {
 	std::stringstream ss(vstr, std::ios::in); 
 	ss >> *v;
+	if(!ss) {
+	  throw BadOptValueException(long_name, vstr, err_msg); 
+	}
       }
 
       template<>
@@ -129,48 +398,57 @@ namespace SoDa {
       std::string doc_str;
       std::string err_msg;
       
-      std::string long_name;
-      char ab_name; 
       bool present; 
     }; 
 
     template <typename T> 
-    class Arg : public ArgBase {
+    class Opt : public OptBase {
     public:
-      Arg(T * val, 
-	  T def_val = {0},
+      Opt(T * val,
+	  T def_val = T(),
 	  const std::string & doc_str = std::string(""),
 	  const std::function<bool(T)> & test_func = allGood,
 	  const std::string & err_msg = std::string("")) : 
-	ArgBase(doc_str, err_msg), val_p(val)
+	OptBase(doc_str, err_msg), val_p(val), test_func(test_func)
       {
 	*val = def_val; 
       }
 
       bool setVal(const std::string & vstr) {
-	setValBase(val_p, vstr); 
+	setValBase(val_p, vstr);
+	if (!test_func(*val_p)) {
+	  throw BadOptValueException(long_name, vstr, err_msg); 	  
+	}
 	return setPresent(); 
       }
 
     protected: 
       T * val_p;
+      std::function<bool(T)> test_func; 
     };
 
 
     template <typename T>
-    class ArgVec : public ArgBase {
+    class OptVec : public OptBase {
     public:
-      ArgVec(std::vector<T> * v_vec, const std::string & doc_str, 
+      OptVec(std::vector<T> * v_vec,
+	     const std::string & doc_str, 
 	     const std::function<bool(T)> & test_func = allGood, 
 	     const std::string & err_msg = std::string("")) :
-	ArgBase(doc_str, err_msg), 
-	argvec_p(v_vec)
+	OptBase(doc_str, err_msg), 
+	argvec_p(v_vec), 
+	test_func(test_func)
       {
       }
 
       bool setVal(const std::string & vstr) {
 	T v;
-	setValBase(&v, vstr); 
+	setValBase(&v, vstr);
+
+	if (!test_func(v)) {	
+	  throw BadOptValueException(long_name, vstr, err_msg);
+	}
+
 	argvec_p->push_back(v);
 
 	present = true; 	
@@ -178,19 +456,20 @@ namespace SoDa {
 	return true; 
       }
 
-      std::vector<T> * argvec_p; 
+      std::vector<T> * argvec_p;
+      std::function<bool(T)> test_func;       
     };
 
-    class ArgPresent : public ArgBase {
+    class OptPresent : public OptBase {
     public:
-      ArgPresent(bool * val, 
+      OptPresent(bool * val,
 		 const std::string & doc_str = std::string(""))
-	: ArgBase(doc_str, "") {
+	: OptBase(doc_str, "") {
 	*val = false; 
 	val_p = val; 
       }
 
-      bool isPresentArg() { 
+      bool isPresentOpt() { 
 	return true; 
       }
 
@@ -202,26 +481,25 @@ namespace SoDa {
 
       bool setPresent() {
 	*val_p = true;
-	return ArgBase::setPresent();
+	return OptBase::setPresent();
       }
       
       bool * val_p; 
     };
 
-    void registerArg(ArgBase * arg_p, 
+    void registerOpt(OptBase * arg_p, 
 		  const std::string & long_name, 
 		  char ab_name); 
 
-    ArgBase * findArg(char c);
+    OptBase * findOpt(char c);
 
-    ArgBase * findArg(const std::string & key);
+    OptBase * findOpt(const std::string & key);
 
 
     std::list<std::string> buildTokenList(int argc, char * argv[]);
     
-    std::map<std::string, ArgBase * > long_map;
-    std::map<char, ArgBase * > ab_map; 
-    std::map<std::string, char> long_2_ab_map; 
+    std::map<std::string, OptBase * > long_map;
+    std::map<char, OptBase * > ab_map; 
 
     std::list<std::string> info_list; 
 

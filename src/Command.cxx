@@ -1,5 +1,40 @@
 #include "Command.hxx"
 
+/*
+BSD 2-Clause License
+
+Copyright (c) 2021, Matt Reilly - kb1vc
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+/**
+ * @file Command.cxx
+ * @author Matt Reilly (kb1vc)
+ * @date Feb 10, 2021
+ */
+
+
 namespace SoDa {
 
   Command::Command() {
@@ -20,8 +55,9 @@ namespace SoDa {
     // now print the arguments
     for(auto ele : long_map) {
       auto arg_p = ele.second;
-      os << "--" << ele.first << "\t-" << long_2_ab_map[ele.first] << "\t";
+      os << "\t--" << arg_p->long_name << "\t-" << arg_p->ab_name << "\t";
       arg_p->printHelp(os);
+      os << "\n";
     }
 
     return os; 
@@ -68,11 +104,16 @@ namespace SoDa {
     return 1; 
   }
 
-  Command & Command::parse(int argc, char * argv[]) {
+  bool Command::parse(int argc, char * argv[]) {
     std::list<std::string> tokens = buildTokenList(argc, argv);
 
-    ArgBase * arg_p = nullptr;
+    return parse(tokens);
+  }
+
+  bool Command::parse(std::list<std::string> tokens) {
+    OptBase * arg_p = nullptr;
     
+    try {
     while(!tokens.empty()) {
       std::string tkn = tokens.front();
       tokens.pop_front();
@@ -94,38 +135,57 @@ namespace SoDa {
       else {
 	if(arg_p != nullptr) {
 	  arg_p->setPresent(); 
-	  arg_p = nullptr; 	  
 	}
 	
+	arg_p = nullptr;
+	
 	if(sw_len == 1) {
-	  arg_p = findArg(tkn[1]);
+	  if(tkn[1] == 'h') {
+	    printHelp(std::cerr); 
+	    return false; 
+	  }
+	  arg_p = findOpt(tkn[1]);
 	}
 	else {
-	  arg_p = findArg(tkn.substr(2));
+	  if(tkn == "--help") {
+	    printHelp(std::cerr);
+	    return false; 
+	  }
+	  arg_p = findOpt(tkn.substr(2));
 	}
 
 	if(arg_p == nullptr) {
-	  throw BadArgException(tkn); 
+	  throw BadOptionNameException(tkn); 
 	}
 
-	if(arg_p->isPresentArg()) {
+	if(arg_p->isPresentOpt()) {
 	  arg_p->setPresent();
 	  arg_p = nullptr; 
 	}
       }
     }
+    }
+    catch (BadOptValueException & exc) {
+      std::cerr << exc.what() << "\n";
+      return false; 
+    }
+    catch (BadOptionNameException & exc) {
+      std::cerr << exc.what() << "\n";
+      printHelp(std::cerr);
+      return false; 
+    }
     
-    return * this; 
+    return true; 
   }
 
-  Command::ArgBase * Command::findArg(const std::string & long_name) {
+  Command::OptBase * Command::findOpt(const std::string & long_name) {
     if(long_map.find(long_name) == long_map.end()) {
       return nullptr;
     }
     return long_map[long_name];
   }
 
-  Command::ArgBase * Command::findArg(char ab_name) {
+  Command::OptBase * Command::findOpt(char ab_name) {
     if(ab_map.find(ab_name) == ab_map.end()) {
       return nullptr;
     }
@@ -147,18 +207,17 @@ namespace SoDa {
     return ab_map[ab_name]->isPresent();
   }
 
-  void Command::registerArg(ArgBase * arg_p, 
+  void Command::registerOpt(OptBase * arg_p, 
 		  const std::string & long_name, 
 			    char ab_name) {
     arg_p->setNames(long_name, ab_name); 
     long_map[long_name] = arg_p;
     ab_map[ab_name] = arg_p;       
-    long_2_ab_map[long_name] = ab_name; 
   }  
 
   
-  std::ostream & Command::ArgBase::printHelp(std::ostream & os) {
-    os << doc_str << "\n";
+  std::ostream & Command::OptBase::printHelp(std::ostream & os) {
+    os << doc_str;
     return os; 
   }
 }

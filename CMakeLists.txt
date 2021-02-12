@@ -17,7 +17,7 @@ SET(SoDaCommand_VERSION_PATCH 0)
 SET(SoDaCommand_VERSION "${SoDaCommand_VERSION_MAJOR}.${SoDaCommand_VERSION_MINOR}.${SoDaCommand_VERSION_PATCH}")
 
 set(SoDaCommand_PACKAGE_DESCRIPTION 
-  "SoDaCommand provides simple string commandting for C++ that includes \"engineering notation\" for floating point values"
+  "SoDaCommand provides simple string command line parsing for C++ applications."
 )
 
 IF(BUILD_RPM)
